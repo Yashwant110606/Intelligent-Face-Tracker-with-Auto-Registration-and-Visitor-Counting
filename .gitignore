@@ -1,0 +1,38 @@
+# Environments
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs and Data
+logs/
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/uploads/
+# Keep the data directory itself, maybe ignore large video samples if needed
+data/*.mp4
+!data/video_sample1.mp4
+
+# Models
+models/*.onnx
+models/*.pt
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

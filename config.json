@@ -1,0 +1,17 @@
+{
+  "detection_skip_frames": 2,
+  "confidence_threshold": 0.4,
+  "similarity_threshold": 0.3,
+  "max_disappeared_frames": 25,
+  "min_face_size": 25,
+  "iou_match_threshold": 0.35,
+  "input_source": "data/uploads/record_20250620_184705.mp4",
+  "database_path": "data/visitor_system.db",
+  "log_file": "logs/events.log",
+  "entries_dir": "logs/entries",
+  "exits_dir": "logs/exits",
+  "output_video_path": "logs/output_annotated.mp4",
+  "save_annotated_video": true,
+  "display_window": true,
+  "rtsp_reconnect_delay": 2.0
+}
