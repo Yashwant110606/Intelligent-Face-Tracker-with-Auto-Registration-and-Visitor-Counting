@@ -45,17 +45,21 @@ class Track:
         visitor_id: str,
         bbox: Tuple[int, int, int, int],
         confidence: float,
-        face_crop: np.ndarray,
+        face_crop: Optional[np.ndarray],
         timestamp: datetime,
-        embedding: Optional[np.ndarray] = None
+        embedding: Optional[np.ndarray] = None,
+        dress_color: Tuple[int, int, int] = (0, 0, 0),
+        body_crop: Optional[np.ndarray] = None
     ):
         self.track_id = track_id
         self.visitor_id = visitor_id
         self.bbox = bbox
         self.confidence = confidence
         self.face_crop = face_crop
-        self.best_crop = face_crop
+        self.body_crop = body_crop
+        self.best_crop = face_crop if face_crop is not None else body_crop
         self.embedding = embedding
+        self.dress_color = dress_color
 
         self.first_seen = timestamp
         self.last_seen = timestamp
@@ -67,19 +71,22 @@ class Track:
         self.entry_image_path = None
         self.exit_image_path = None
 
-    def update(self, bbox: Tuple[int, int, int, int], confidence: float, face_crop: np.ndarray, timestamp: datetime):
+    def update(self, bbox: Tuple[int, int, int, int], confidence: float, face_crop: Optional[np.ndarray], dress_color: Tuple[int, int, int], timestamp: datetime, body_crop: Optional[np.ndarray] = None):
         """Updates track with a new detection."""
         self.bbox = bbox
         self.confidence = confidence
         self.face_crop = face_crop
+        self.body_crop = body_crop
+        self.dress_color = dress_color
         self.last_seen = timestamp
         self.disappeared = 0
         self.detection_hits += 1
 
         # Keep best crop (highest resolution)
-        if face_crop is not None and face_crop.size > 0:
-            if self.best_crop is None or face_crop.size > self.best_crop.size:
-                self.best_crop = face_crop.copy()
+        crop_to_eval = face_crop if face_crop is not None else body_crop
+        if crop_to_eval is not None and crop_to_eval.size > 0:
+            if self.best_crop is None or crop_to_eval.size > self.best_crop.size:
+                self.best_crop = crop_to_eval.copy()
 
     def mark_missed(self):
         """Increments disappeared counter."""
@@ -189,7 +196,9 @@ class FaceTracker:
                 self.active_tracks[tid].update(
                     bbox=det["bbox"],
                     confidence=det["confidence"],
-                    face_crop=det["face_crop"],
+                    face_crop=det.get("face_crop"),
+                    body_crop=det.get("body_crop"),
+                    dress_color=det.get("dress_color", (0, 0, 0)),
                     timestamp=now
                 )
                 matched_tracks.add(tid)
@@ -214,46 +223,60 @@ class FaceTracker:
         Extracts ArcFace embedding, checks if already registered,
         auto-registers if new, and creates new Track.
         """
-        face_crop = det["face_crop"]
+        face_crop = det.get("face_crop")
+        body_crop = det.get("body_crop")
         track_id = self.next_track_id
         self.next_track_id += 1
 
-        # 1. Generate 512-dim embedding
-        emb, elapsed_ms = self.recognizer.generate_embedding(face_crop)
-        self.logger.log_embedding_generation(track_id=track_id, dim=len(emb), elapsed_ms=elapsed_ms)
+        if face_crop is not None:
+            # 1. Generate 512-dim embedding
+            emb, elapsed_ms = self.recognizer.generate_embedding(face_crop)
+            self.logger.log_embedding_generation(track_id=track_id, dim=len(emb), elapsed_ms=elapsed_ms)
 
-        # 2. Match against registered visitors
-        matched_id, similarity = self.recognizer.match_face(emb, self.registered_embeddings)
+            # 2. Match against registered visitors
+            matched_id, similarity = self.recognizer.match_face(emb, self.registered_embeddings)
 
-        if matched_id is not None:
-            # Re-identified existing visitor! (Does NOT increment unique visitor count)
-            visitor_id = matched_id
-            self.logger.log_recognition(visitor_id=visitor_id, track_id=track_id, similarity=similarity)
-            self.db.update_visitor_activity(visitor_id, now.isoformat(), increment_visit=True)
-            
-            # Adaptively refine stored facial template to handle subtle lighting/pose changes
-            if similarity >= 0.45:
-                curr_emb = self.registered_embeddings[visitor_id]
-                refined_emb = 0.85 * curr_emb + 0.15 * emb
-                norm = np.linalg.norm(refined_emb)
-                if norm > 0:
-                    refined_emb = (refined_emb / norm).astype(np.float32)
-                self.registered_embeddings[visitor_id] = refined_emb
-                self.db.update_visitor_embedding(visitor_id, refined_emb)
+            if matched_id is not None:
+                # Re-identified existing visitor!
+                visitor_id = matched_id
+                self.logger.log_recognition(visitor_id=visitor_id, track_id=track_id, similarity=similarity)
+                self.db.update_visitor_activity(visitor_id, now.isoformat(), increment_visit=True)
+                
+                if similarity >= 0.45:
+                    curr_emb = self.registered_embeddings[visitor_id]
+                    refined_emb = 0.85 * curr_emb + 0.15 * emb
+                    norm = np.linalg.norm(refined_emb)
+                    if norm > 0:
+                        refined_emb = (refined_emb / norm).astype(np.float32)
+                    self.registered_embeddings[visitor_id] = refined_emb
+                    self.db.update_visitor_embedding(visitor_id, refined_emb)
+            else:
+                # New face! Auto-register!
+                visitor_id = self._generate_next_visitor_id()
+                now_iso = now.isoformat()
+                thumb_path = self.logger.save_face_image(face_crop, visitor_id, "entry", now)
+                self.db.register_visitor(
+                    visitor_id=visitor_id,
+                    embedding=emb,
+                    timestamp=now_iso,
+                    thumbnail_path=thumb_path
+                )
+                self.registered_embeddings[visitor_id] = emb
+                self.logger.log_registration(visitor_id, now_iso)
         else:
-            # New face! Auto-register!
+            # Body only detection (Walking away, no face)
+            emb = np.zeros(512, dtype=np.float32)
             visitor_id = self._generate_next_visitor_id()
             now_iso = now.isoformat()
-            # Save thumbnail
-            thumb_path = self.logger.save_face_image(face_crop, visitor_id, "entry", now)
+            thumb_path = self.logger.save_face_image(body_crop, visitor_id, "entry_back", now)
             self.db.register_visitor(
                 visitor_id=visitor_id,
                 embedding=emb,
                 timestamp=now_iso,
                 thumbnail_path=thumb_path
             )
-            # Update cache
-            self.registered_embeddings[visitor_id] = emb
+            # We intentionally DO NOT cache the dummy embedding in registered_embeddings 
+            # to prevent all back-facing people from matching each other (since distance between zero vectors is 0).
             self.logger.log_registration(visitor_id, now_iso)
 
         # Create active track
@@ -263,8 +286,10 @@ class FaceTracker:
             bbox=det["bbox"],
             confidence=det["confidence"],
             face_crop=face_crop,
+            body_crop=body_crop,
             timestamp=now,
-            embedding=emb
+            embedding=emb,
+            dress_color=det.get("dress_color", (0, 0, 0))
         )
         self.active_tracks[track_id] = new_track
 
@@ -301,7 +326,7 @@ class FaceTracker:
                     timestamp=entry_time_str,
                     image_path=img_path,
                     confidence=track.confidence,
-                    details=f"Track #{track.track_id} entered scene"
+                    details=f"Track #{track.track_id} entered scene | Color: rgb({track.dress_color[2]},{track.dress_color[1]},{track.dress_color[0]})"
                 )
                 # Record in events.log
                 self.logger.log_entry(
@@ -342,7 +367,7 @@ class FaceTracker:
                 timestamp=exit_time_str,
                 image_path=img_path,
                 confidence=track.confidence,
-                details=f"Track #{track.track_id} exited scene (Duration: {duration_sec:.1f}s)"
+                details=f"Track #{track.track_id} exited scene (Duration: {duration_sec:.1f}s) | Color: rgb({track.dress_color[2]},{track.dress_color[1]},{track.dress_color[0]})"
             )
             # Record in events.log
             self.logger.log_exit(

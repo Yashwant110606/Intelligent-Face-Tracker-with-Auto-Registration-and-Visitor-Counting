@@ -124,7 +124,7 @@ class FaceTrackerPipeline:
 
             # Label background
             label_y1 = max(0, y1 - th - int(8 * ui_scale))
-            cv2.rectangle(frame, (x1, label_y1), (x1 + tw + int(8 * ui_scale), label_y1 + th + int(8 * ui_scale)), color, -1)
+            cv2.rectangle(frame, (x1, label_y1), (x1 + tw + int(32 * ui_scale), label_y1 + th + int(8 * ui_scale)), color, -1)
             cv2.putText(
                 frame,
                 full_label,
@@ -135,6 +135,12 @@ class FaceTrackerPipeline:
                 font_thick,
                 cv2.LINE_AA
             )
+            
+            # Draw Dress Color Swatch
+            swatch_size = int(12 * ui_scale)
+            swatch_x1 = x1 + tw + int(12 * ui_scale)
+            cv2.rectangle(frame, (swatch_x1, label_y1 + int(4 * ui_scale)), (swatch_x1 + swatch_size, label_y1 + int(4 * ui_scale) + swatch_size), (int(track.dress_color[0]), int(track.dress_color[1]), int(track.dress_color[2])), -1)
+            cv2.rectangle(frame, (swatch_x1, label_y1 + int(4 * ui_scale)), (swatch_x1 + swatch_size, label_y1 + int(4 * ui_scale) + swatch_size), (255, 255, 255), 1)
 
         # Top-Left Dashboard Overlay
         unique_count = self.db.get_unique_visitor_count()
