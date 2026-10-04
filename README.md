@@ -67,12 +67,14 @@ Phase 5 — Optimization & Fixes
 ## 2. Feature Documentation
 
 ### 2.1 Face Detection
-- **Model**: YOLOv8-nano-face (`yolov8n-face.pt`)
+- **Models**: YOLOv8-nano-face (`yolov8n-face.pt`) for faces, and YOLOv8-nano (`yolov8n.pt`) for full bodies.
 - **Inference size**: 640×640 input (auto-resized)
 - **Configurable confidence threshold** (`confidence_threshold`, default: `0.45`)
 - **Minimum face size filter** (`min_face_size`, default: `25px`) eliminates tiny false positives
+- **Body-Only Detection**: Detects people walking away from the camera when faces are occluded.
+- **Dress Color Extraction**: Uses K-Means clustering to extract the dominant dress color from the torso region.
 - **GPU acceleration**: Automatically uses CUDA if NVIDIA GPU is available; falls back to CPU
-- **Output**: Bounding boxes `(x1, y1, x2, y2)` + confidence score + cropped face ROI
+- **Output**: Bounding boxes `(x1, y1, x2, y2)` + confidence score + cropped face/body ROI + dominant dress color
 
 ### 2.2 Face Recognition & Auto-Registration
 - **Model**: ArcFace InsightFace MobileFaceNet (`w600k_mbf.onnx`)
@@ -80,6 +82,7 @@ Phase 5 — Optimization & Fixes
 - **Similarity metric**: Cosine Similarity between unit embeddings
 - **Threshold** (`similarity_threshold`, default: `0.40`)
 - **Auto-Registration**: New faces automatically assigned unique sequential IDs (`VISITOR_0001`, `VISITOR_0002`, ...)
+- **Body-Only Registration**: People walking away (no visible face) are assigned a unique ID, tracked via dress color and spatial bounding box, and saved with a body thumbnail (prevents missed counts).
 - **Adaptive Template Refinement**: On each successful re-identification, stored embedding is updated via exponential moving average (`0.85 × old + 0.15 × new`) to adapt to lighting/pose drift over time
 
 ### 2.3 Unique Visitor Counting (Core Feature)
@@ -194,7 +197,9 @@ INPUT LAYER
   └── RTSP Network Camera
 
 DETECTION LAYER (YOLOv8)
-  ├── Detect all face bounding boxes per frame
+  ├── Detect all face bounding boxes per frame (yolov8n-face)
+  ├── Detect full person bounding boxes (yolov8n) to catch back-facing individuals
+  ├── Extract dominant dress color using K-Means clustering
   ├── Filter by confidence threshold (≥ 0.45)
   └── Filter by minimum face size (≥ 25px)
 
@@ -451,13 +456,15 @@ An AI-driven unique visitor counter and real-time face tracking system designed 
 ## 🎯 Key Capabilities & Architecture
 
 - **Face Detection (YOLOv8)**:
-  - Powered by `yolov8n-face`, optimized for low-latency facial detection.
+  - Powered by `yolov8n-face` for low-latency facial detection, and `yolov8n` for full-body person detection.
   - Automatically filters false positives using configurable confidence (`conf_threshold`) and minimum bounding box size (`min_face_size`).
+  - **Dress Color Extraction**: Dynamically calculates the dominant clothing color of each tracked person using K-Means clustering.
   - Supports GPU (`cuda:0` / NVIDIA RTX) acceleration with CPU fallback.
 
 - **Face Recognition & Auto-Registration (ArcFace / InsightFace)**:
   - Extracts 512-dimensional normalized facial embeddings using ArcFace (`w600k_mbf.onnx`).
   - **Auto-Registration**: Upon first sighting of an unrecognized face, the system automatically registers the visitor, generates a unique ID (`VISITOR_XXXX`), archives a reference crop, and persists the embedding into the database.
+  - **Body-Only Registration**: If a person is walking away and their face is hidden, the system uses their body crop and dress color to register them as a unique visitor, ensuring accurate footfall counts regardless of camera angle.
   - **Re-Identification**: Uses cosine similarity against database embeddings. Returning visitors are recognized instantly across frames and multiple sessions without duplicate registration.
   - **Strictly avoids legacy `face_recognition` library** in favor of production-grade ArcFace SOTA embeddings.
 
@@ -585,27 +592,3 @@ Open [http://localhost:8080](http://localhost:8080) in any browser to see:
 - Gallery of Registered Visitors with face thumbnails
 - Full Audit Log table with timestamped snapshots and entry/exit statuses
 - Auto-refreshes every 5 seconds.
-  
-Logs:
-1. System Events Log :
-The primary plain-text log file that records the underlying operations of the AI pipeline.
-•	Initialization & State: Logs pipeline startups, model initializations, and graceful shutdowns.
-•	Biometric Performance: Records the latency (in milliseconds) required to generate the 512-dimensional facial embeddings for profiling.
-•	Recognition Confidence: Logs whenever a live track successfully matches an existing biometric template, including the specific cosine similarity score.
-•	Exception Handling: Captures dropped frames, unhandled connection aborts, and database locks for debugging purposes.
-
-2. Visual Audit Snapshots :
-To provide undeniable proof of events, the system logs cropped facial snapshots rather than relying strictly on text.
-•	Entry Snapshots: When an individual enters the camera frame and meets the minimum tracking threshold, a localized face thumbnail is saved to a timestamped folder in logs/entries/.
-•	Exit Snapshots: When the tracking algorithm determines a face has departed the frame (exceeding the max_disappeared_frames threshold), a final reference snapshot is written to logs/exits/.
-
-3. Database Event Ledger :
-The SQLite database maintains an immutable events table that acts as the backbone for the web dashboard's Audit Trail. Every physical transition creates a structured row containing:
-•	The assigned visitor_id (e.g., VISITOR_0027)
-•	The precise ISO-formatted timestamp of the event.
-•	The event classification (entry or exit).
-•	The relative filesystem path mapping directly to the corresponding visual audit snapshot.
-
-4. Annotated Video Archiving :
-Controlled by the save_annotated_video flag in config.json, the system can optionally render and export a permanent video record. This output file bakes the YOLO bounding boxes, assigned Track IDs, and real-time model confidence percentages directly into the video frames, providing a complete historical recreation of the session.
-
