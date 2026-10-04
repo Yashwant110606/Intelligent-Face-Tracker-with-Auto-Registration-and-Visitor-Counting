@@ -592,3 +592,41 @@ Open [http://localhost:8080](http://localhost:8080) in any browser to see:
 - Gallery of Registered Visitors with face thumbnails
 - Full Audit Log table with timestamped snapshots and entry/exit statuses
 - Auto-refreshes every 5 seconds.
+
+  Logs:
+1. System Events Log :
+The primary plain-text log file that records the underlying operations of the AI pipeline.
+  >Initialization & State: Logs pipeline startups, model initializations, and graceful
+shutdowns.
+  >Biometric Performance: Records the latency (in milliseconds) required to generate
+   the 512-dimensional facial embeddings for profiling.
+  >Recognition Confidence: Logs whenever a live track successfully matches an
+   existing biometric template, including the specific cosine similarity score.
+  >Exception Handling: Captures dropped frames, unhandled connection aborts, and
+   database locks for debugging purposes.
+
+2. Visual Audit Snapshots :
+To provide undeniable proof of events, the system logs cropped facial snapshots rather
+than relying strictly on text.
+   >Entry Snapshots: When an individual enters the camera frame and meets the
+    minimum tracking threshold, a localized face thumbnail is saved to a timestamped
+    folder in logs/entries/.
+   >Exit Snapshots: When the tracking algorithm determines a face has departed the
+    frame (exceeding the max_disappeared_frames threshold), a final reference
+    snapshot is written to logs/exits/.
+
+3. Database Event Ledger :
+The SQLite database maintains an immutable events table that acts as the backbone for
+the web dashboard's Audit Trail. Every physical transition creates a structured row
+containing:
+  >The assigned visitor_id (e.g., VISITOR_0027)
+  >The precise ISO-formatted timestamp of the event.
+  >The event classification (entry or exit).
+  >The relative filesystem path mapping directly to the corresponding visual audit
+   snapshot.
+
+4. Annotated Video Archiving :
+Controlled by the save_annotated_video flag in config.json, the system can optionally
+render and export a permanent video record. This output file bakes the YOLO bounding
+boxes, assigned Track IDs, and real-time model confidence percentages directly into the
+video frames, providing a complete historical recreation of the session.
