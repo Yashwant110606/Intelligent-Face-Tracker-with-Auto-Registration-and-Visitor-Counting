@@ -3,6 +3,8 @@
 > **Real-time AI-powered biometric analytics system with YOLOv8 face detection, ArcFace deep re-identification, unique visitor counting, entry/exit event logging, and a live enterprise web dashboard.**
 
 ---
+> [!IMPORTANT]
+> 📺 **[Watch the Video Explanation / Demo on YouTube](https://youtu.be/-hj2hWKgyfg)**
 
 ## Table of Contents
 
@@ -15,7 +17,6 @@
 7. [Sample config.json Structure](#7-sample-configjson-structure)
 8. [Project Directory Structure](#8-project-directory-structure)
 9. [Tech Stack](#9-tech-stack)
-
 ---
 
 ## 1. Project Planning
